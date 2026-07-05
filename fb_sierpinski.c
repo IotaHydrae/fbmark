@@ -27,6 +27,8 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#include "fb_util.h"
+
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 
 typedef struct {
@@ -64,6 +66,7 @@ int main(int argc, char **argv)
 
   len = info.xres * info.yres * info.bits_per_pixel / 8;
   buffer = mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0);
+  fb_console_init();
   data = malloc(width * height * info.bits_per_pixel / 8);
   angle = 0;
   r = MIN(width, height) / 2 - 8;
@@ -117,6 +120,7 @@ int main(int argc, char **argv)
   printf("\n");
 
   free(data);
+  fb_console_restore();
   munmap(buffer, len);
   close(fd);
 

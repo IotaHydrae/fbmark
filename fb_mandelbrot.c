@@ -25,6 +25,8 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#include "fb_util.h"
+
 int main(int argc, char **argv)
 {
   int fd, width, height, posx, posy;
@@ -54,6 +56,7 @@ int main(int argc, char **argv)
 
   len = info.xres * info.yres * info.bits_per_pixel / 8;
   buffer = mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0);
+  fb_console_init();
   gettimeofday(&start, NULL);
 
   while (iters <= 48) {
@@ -87,6 +90,7 @@ int main(int argc, char **argv)
   printf("Mandelbrot frame buffer test bench\n");
   printf("Benchmarking 48 iterations: %.2f seconds\n", seconds);
 
+  fb_console_restore();
   munmap(buffer, len);
   close(fd);
 

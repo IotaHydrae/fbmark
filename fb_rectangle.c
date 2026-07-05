@@ -25,6 +25,8 @@
 #include <sys/mman.h>
 #include <sys/time.h>
 
+#include "fb_util.h"
+
 int main(int argc, char **argv)
 {
   int fd, width, height, posx, posy;
@@ -53,6 +55,7 @@ int main(int argc, char **argv)
 
   len = info.xres * info.yres * info.bits_per_pixel / 8;
   buffer = mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0);
+  fb_console_init();
   w = width >> 2;
   h = height >> 2;
   count = 0;
@@ -84,6 +87,7 @@ int main(int argc, char **argv)
   printf("Rectangle frame buffer test bench\n");
   printf("Benchmarking %dx%d size: %.2f MPixels/second\n", w, h, count * w * h / ((end - start) * 1000.));
 
+  fb_console_restore();
   munmap(buffer, len);
   close(fd);
 
