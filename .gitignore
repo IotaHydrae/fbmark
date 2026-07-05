@@ -1,3 +1,8 @@
-fb_mandelbrot
-fb_rectangle
-fb_sierpinski
+# Compiled binaries
+*.out
+
+# Object files
+*.o
+
+# Editor backup files
+*~
