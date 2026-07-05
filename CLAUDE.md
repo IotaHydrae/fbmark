@@ -11,8 +11,8 @@ frame rate, or elapsed time.
 ## Build & run
 
 ```bash
-make                          # build all benchmarks (binaries get .out suffix)
-make clean                    # remove all .out binaries
+make                          # build fbmark.out
+make clean                    # remove fbmark.out
 make install PREFIX=/usr      # install to DESTDIR (default /usr/local)
 ```
 
@@ -21,14 +21,8 @@ Override defaults:
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
 ```
 
-Build a single benchmark:
-```bash
-make fb_mandelbrot.out
-```
-
 ## Running benchmarks
 
-Each `fb_<name>.out` is a standalone program that runs one test.
 `fbmark.out` is the combined suite (13 tests, scoreboard output).
 
 Environment variables:
@@ -61,15 +55,11 @@ Two layers:
    - The header is `#include`d directly (no separate compilation); functions are
      `static` to avoid multiple-definition errors.
 
-2. **Benchmark programs** — two categories:
-   - **Standalone** (`fb_mandelbrot.c`, `fb_rectangle.c`, …, `fb_julia.c`): each
-     has its own `main()`, opens the framebuffer, runs one rendering loop, prints
-     a single result line.
-   - **Combined suite** (`fbmark.c`): includes all 13 tests as `static` functions
-     called sequentially from `main()`, then prints a formatted scoreboard and
-     computes a weighted total score.
+2. **Benchmark program** — `fbmark.c`: includes all 13 tests as `static`
+   functions called sequentially from `main()`, then prints a formatted
+   scoreboard and computes a weighted total score.
 
-Every program follows the same lifecycle:
+The program follows this lifecycle:
 1. Open `$FRAMEBUFFER` (default `/dev/fb0`) with `O_RDWR`
 2. `ioctl(FBIOGET_VSCREENINFO)` to get screen dimensions and bpp
 3. `mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0)` to map the framebuffer
@@ -77,16 +67,14 @@ Every program follows the same lifecycle:
 5. Run the rendering loop, measuring with `gettimeofday`
 6. `fb_console_restore()`, `munmap`, `close(fd)`
 
-Individual benchmarks do direct pixel math on the mmap'd buffer.
-`fbmark.c` wraps this in a `pixel_at(x, y)` helper that accounts for the
+Tests do direct pixel math on the mmap'd buffer, wrapped in a
+`pixel_at(x, y)` helper that accounts for the
 benchmark sub-region offset (`POSX`/`POSY`).
 
 ## Makefile notes
 
-- `BIN_SUFFIX = .out` — all compiled binaries end in `.out`.
-- Programs needing `libm` (`fb_sierpinski`, `fb_plasma`, `fb_julia`, `fbmark`)
-  have explicit rules with `-lm`.
-- All other programs use a pattern rule: `%$(BIN_SUFFIX): %.c`.
+- `BIN_SUFFIX = .out` — the compiled binary ends in `.out`.
+- `fbmark` links `-lm` for math functions used by several tests.
 - `-Wall` is always passed; no other warning flags.
 
 ## The 13 tests (in run order)

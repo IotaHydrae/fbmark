@@ -21,6 +21,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 #include <unistd.h>
 #include <linux/fb.h>
 #include <sys/ioctl.h>
@@ -31,6 +32,7 @@
 
 #define MIN(a,b) ((a) < (b) ? (a) : (b))
 #define TEST_COUNT 13
+#define FBMARK_VERSION "1.0.1"
 
 /* ---- result type ---- */
 
@@ -66,13 +68,58 @@ static const score_meta_t score_meta[TEST_COUNT] = {
   {   3.0,     METRIC_LOWER_BETTER  },  /* Julia set       */
 };
 
-static double compute_total_score(const test_result_t results[TEST_COUNT])
+/* ---- test function forward declarations ---- */
+
+static test_result_t test_mandelbrot(void);
+static test_result_t test_rectangle(void);
+static test_result_t test_sierpinski(void);
+static test_result_t test_gradient(void);
+static test_result_t test_blit(void);
+static test_result_t test_line(void);
+static test_result_t test_circle(void);
+static test_result_t test_fill(void);
+static test_result_t test_plasma(void);
+static test_result_t test_scroll(void);
+static test_result_t test_text(void);
+static test_result_t test_triangle(void);
+static test_result_t test_julia(void);
+
+/* ---- test function table ---- */
+
+typedef test_result_t (*test_fn_t)(void);
+
+typedef struct {
+  const char *short_name;
+  const char *display_name;
+  int         index;
+  test_fn_t   func;
+} test_entry_t;
+
+static const test_entry_t test_table[TEST_COUNT] = {
+  {"mandelbrot",   "Mandelbrot",      0,  test_mandelbrot},
+  {"rectangle",    "Rectangle fill",  1,  test_rectangle},
+  {"sierpinski",   "Sierpinski",      2,  test_sierpinski},
+  {"gradient",     "Gradient fill",   3,  test_gradient},
+  {"blit",         "Blit copy",       4,  test_blit},
+  {"line",         "Line draw",       5,  test_line},
+  {"circle",       "Circle draw",     6,  test_circle},
+  {"fill",         "Fullscreen fill", 7,  test_fill},
+  {"plasma",       "Plasma effect",   8,  test_plasma},
+  {"scroll",       "Scroll",          9,  test_scroll},
+  {"text",         "Text render",    10,  test_text},
+  {"triangle",     "Triangle fill",  11,  test_triangle},
+  {"julia",        "Julia set",      12,  test_julia},
+};
+
+static double compute_total_score(const test_result_t results[TEST_COUNT],
+                                  const int selected[TEST_COUNT])
 {
   double total = 0.0;
-  int i;
+  int i, count = 0;
 
   for (i = 0; i < TEST_COUNT; i++) {
     double score;
+    if (!selected[i]) continue;
     if (score_meta[i].direction == METRIC_HIGHER_BETTER) {
       /* higher raw value → higher score */
       score = (results[i].value / score_meta[i].ref_value) * 100.0;
@@ -83,9 +130,10 @@ static double compute_total_score(const test_result_t results[TEST_COUNT])
     if (score > 100.0) score = 100.0;
     if (score < 0.0)   score = 0.0;
     total += score;
+    count++;
   }
 
-  return total / TEST_COUNT;
+  return count > 0 ? total / count : 0.0;
 }
 
 /* ---- globals (set once by main) ---- */
@@ -104,6 +152,13 @@ static int bench_width, bench_height, bench_posx, bench_posy;
 static unsigned char *pixel_at(int x, int y)
 {
   return fb_buffer + (bench_posy + y) * fb_row_size + (bench_posx + x) * fb_pixel_size;
+}
+
+static void clear_screen(void)
+{
+  int i;
+  for (i = 0; i < bench_height; i++)
+    memset(pixel_at(0, i), 0, bench_width * fb_pixel_size);
 }
 
 /* =====================================================================
@@ -649,6 +704,106 @@ static const unsigned char font_data[GLYPHS][FONT_H] = {
   {0x00,0x00,0x00,0x00,0x00,0x32,0x4C,0x00,0x00,0x00,0x00,0x00,0x00}, /* ~ */
 };
 
+/* ---- framebuffer text rendering ---- */
+
+static void fb_draw_char(int cx, int cy, char ch, unsigned char r, unsigned char g, unsigned char b)
+{
+  int row, col;
+  unsigned char glyph;
+
+  if (ch < FONT_BASE || ch >= FONT_BASE + GLYPHS)
+    return;
+
+  for (row = 0; row < FONT_H; row++) {
+    glyph = font_data[ch - FONT_BASE][row];
+    for (col = 0; col < FONT_W; col++) {
+      if (glyph & (0x80 >> col)) {
+        int px = cx + col;
+        int py = cy + row;
+        if (px >= 0 && px < bench_width && py >= 0 && py < bench_height) {
+          *(pixel_at(px, py) + 2) = r;
+          *(pixel_at(px, py) + 1) = g;
+          *(pixel_at(px, py) + 0) = b;
+        }
+      }
+    }
+  }
+}
+
+static void fb_draw_string(int x, int y, const char *s, unsigned char r, unsigned char g, unsigned char b)
+{
+  while (*s) {
+    fb_draw_char(x, y, *s, r, g, b);
+    x += FONT_W;
+    s++;
+  }
+}
+
+/* Render the scoreboard on the framebuffer if resolution is sufficient.
+ * The layout is roughly 50-56 characters wide (~400-448 px at 8px font),
+ * so we need at least that much horizontal space plus some margin.
+ * We also need ~20 lines vertically (~260 px at 13px line height). */
+static void fb_show_scoreboard(const test_result_t results[TEST_COUNT],
+                                const int selected[TEST_COUNT],
+                                double total_score, float total_sec)
+{
+  int y, i;
+  char buf[128];
+  int content_w_chars = 52;  /* conservative estimate of the widest line in characters */
+  int content_w_px    = content_w_chars * FONT_W;
+  int margin_x, margin_y;
+  int sel_count = 0;
+
+  for (i = 0; i < TEST_COUNT; i++)
+    if (selected[i]) sel_count++;
+
+  /* Need at least enough pixels to fit the content */
+  if (bench_width < content_w_px + 16 || bench_height < 260)
+    return;
+
+  clear_screen();
+
+  /* Centre the scoreboard horizontally; vertically start at 10 % from the top */
+  margin_x = (bench_width - content_w_px) / 2;
+  if (margin_x < 8) margin_x = 8;
+  margin_y = bench_height / 10;
+  if (margin_y < 8) margin_y = 8;
+
+  /* ---- title (white) ---- */
+  y = margin_y;
+  fb_draw_string(margin_x, y, "fbmark - Linux Framebuffer Benchmark", 255, 255, 255);
+  y += FONT_H + 6;
+
+  /* ---- column header (cyan) ---- */
+  fb_draw_string(margin_x, y, "Test                 Metric         Value  Unit", 0, 220, 220);
+  y += FONT_H + 2;
+  fb_draw_string(margin_x, y, "------------------------------------------------", 100, 100, 100);
+  y += FONT_H + 2;
+
+  /* ---- each selected test result (light gray) ---- */
+  for (i = 0; i < TEST_COUNT; i++) {
+    if (!selected[i]) continue;
+    snprintf(buf, sizeof(buf), "%-20s %-14s %8.2f  %s",
+             results[i].name, results[i].metric, results[i].value, results[i].unit);
+    fb_draw_string(margin_x, y, buf, 200, 200, 200);
+    y += FONT_H + 1;
+  }
+
+  y += 4;
+  fb_draw_string(margin_x, y, "------------------------------------------------", 100, 100, 100);
+  y += FONT_H + 4;
+
+  /* ---- total line (yellow) ---- */
+  snprintf(buf, sizeof(buf), "Total: %8.2f s     Score: %5.1f / 100", total_sec, total_score);
+  fb_draw_string(margin_x, y, buf, 255, 220, 50);
+
+  /* ---- "exit" hint at the bottom of the screen (dark gray) ---- */
+  y = bench_height - FONT_H - 12;
+  if (y > margin_y + (sel_count + 6) * (FONT_H + 1)) {  /* only if there is room */
+    fb_draw_string(margin_x, y, "Press Enter to exit...", 120, 120, 120);
+  }
+}
+
 static test_result_t test_text(void)
 {
   unsigned int count, start_ms, end_ms, cols, rows, cx, cy;
@@ -808,10 +963,91 @@ static test_result_t test_julia(void)
 int main(int argc, char **argv)
 {
   test_result_t results[TEST_COUNT];
-  int i, max_name_len = 0, max_metric_len = 0;
+  int selected[TEST_COUNT];
+  int i, run_count, max_name_len = 0, max_metric_len = 0;
   struct timeval total_start, total_end;
   float total_sec;
   const char *fbdev;
+
+  /* default: run all tests */
+  for (i = 0; i < TEST_COUNT; i++) selected[i] = 1;
+
+  /* ---- parse command-line arguments ---- */
+  for (i = 1; i < argc; i++) {
+    if (strcmp(argv[i], "-h") == 0 || strcmp(argv[i], "--help") == 0) {
+      printf("Usage: fbmark [OPTIONS]\n");
+      printf("Linux Framebuffer Benchmark\n");
+      printf("\n");
+      printf("Options:\n");
+      printf("  -h, --help       Show this help message and exit\n");
+      printf("  -v, --version    Show version information and exit\n");
+      printf("  -l, --list       List all available tests and exit\n");
+      printf("  -t, --test TEST  Run only specified tests (comma-separated list of\n");
+      printf("                   test names or numbers, e.g. \"mandelbrot,line\" or\n");
+      printf("                   \"1,3,5\"); default: run all tests\n");
+      printf("\n");
+      printf("Environment variables:\n");
+      printf("  FRAMEBUFFER       Framebuffer device path (default: /dev/fb0)\n");
+      printf("  WIDTH             Benchmark region width (default: screen width)\n");
+      printf("  HEIGHT            Benchmark region height (default: screen height)\n");
+      printf("  POSX              Benchmark region X offset (default: 0)\n");
+      printf("  POSY              Benchmark region Y offset (default: 0)\n");
+      printf("  SIERPINSKI_FPS    Minimum FPS for Sierpinski test (default: 4)\n");
+      printf("\n");
+      printf("Authors:\n");
+      printf("  Nicolas Caramelli\n");
+      printf("  Zheng Hua <hua.zheng@embeddedboys.com>\n");
+      return 0;
+    }
+    if (strcmp(argv[i], "-v") == 0 || strcmp(argv[i], "--version") == 0) {
+      printf("fbmark version " FBMARK_VERSION "\n");
+      return 0;
+    }
+    if (strcmp(argv[i], "-l") == 0 || strcmp(argv[i], "--list") == 0) {
+      int j;
+      printf("Available tests:\n");
+      for (j = 0; j < TEST_COUNT; j++) {
+        printf("  %2d  %-14s  %s\n", j + 1, test_table[j].short_name,
+               test_table[j].display_name);
+      }
+      return 0;
+    }
+    if (strcmp(argv[i], "-t") == 0 || strcmp(argv[i], "--test") == 0) {
+      char *token;
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: -t/--test requires an argument\n");
+        return 1;
+      }
+      /* clear selection — user specified explicit list */
+      memset(selected, 0, sizeof(selected));
+      token = strtok(argv[++i], ",");
+      while (token) {
+        char *endptr;
+        long idx;
+        /* trim leading whitespace */
+        while (*token == ' ' || *token == '\t') token++;
+        /* try numeric index first (1-based) */
+        idx = strtol(token, &endptr, 10);
+        if (*endptr == '\0' && idx >= 1 && idx <= TEST_COUNT) {
+          selected[idx - 1] = 1;
+        } else {
+          /* match by short name (case-insensitive) */
+          int j, found = 0;
+          for (j = 0; j < TEST_COUNT; j++) {
+            if (strcasecmp(token, test_table[j].short_name) == 0) {
+              selected[j] = 1;
+              found = 1;
+              break;
+            }
+          }
+          if (!found) {
+            fprintf(stderr, "Warning: unknown test '%s' — ignored\n", token);
+          }
+        }
+        token = strtok(NULL, ",");
+      }
+    }
+  }
 
   /* ---- open framebuffer ---- */
   fbdev = getenv("FRAMEBUFFER") ? getenv("FRAMEBUFFER") : "/dev/fb0";
@@ -851,57 +1087,37 @@ int main(int argc, char **argv)
   /* ---- disable framebuffer cursor blink ---- */
   fb_console_init();
 
-  /* ---- run all tests ---- */
-  printf("  [ 1/13] Mandelbrot...\n");
-  results[0] = test_mandelbrot();
+  /* ---- count selected tests ---- */
+  run_count = 0;
+  for (i = 0; i < TEST_COUNT; i++)
+    if (selected[i]) run_count++;
 
-  printf("  [ 2/13] Rectangle fill...\n");
-  results[1] = test_rectangle();
-
-  printf("  [ 3/13] Sierpinski...\n");
-  results[2] = test_sierpinski();
-
-  printf("  [ 4/13] Gradient fill...\n");
-  results[3] = test_gradient();
-
-  printf("  [ 5/13] Blit copy...\n");
-  results[4] = test_blit();
-
-  printf("  [ 6/13] Line draw...\n");
-  results[5] = test_line();
-
-  printf("  [ 7/13] Circle draw...\n");
-  results[6] = test_circle();
-
-  printf("  [ 8/13] Fullscreen fill...\n");
-  results[7] = test_fill();
-
-  printf("  [ 9/13] Plasma...\n");
-  results[8] = test_plasma();
-
-  printf("  [10/13] Scroll...\n");
-  results[9] = test_scroll();
-
-  printf("  [11/13] Text render...\n");
-  results[10] = test_text();
-
-  printf("  [12/13] Triangle fill...\n");
-  results[11] = test_triangle();
-
-  printf("  [13/13] Julia set...\n");
-  results[12] = test_julia();
+  /* ---- run selected tests ---- */
+  {
+    int run_idx = 1;
+    for (i = 0; i < TEST_COUNT; i++) {
+      if (!selected[i]) continue;
+      printf("  [%2d/%2d] %s...\n", run_idx, run_count,
+             test_table[i].display_name);
+      clear_screen();
+      results[i] = test_table[i].func();
+      run_idx++;
+    }
+  }
 
   gettimeofday(&total_end, NULL);
   total_sec = (total_end.tv_sec - total_start.tv_sec) +
               (total_end.tv_usec - total_start.tv_usec) / 1000000.;
 
   /* ---- compute overall score ---- */
-  double total_score = compute_total_score(results);
+  double total_score = compute_total_score(results, selected);
 
   /* ---- find max column widths ---- */
   for (i = 0; i < TEST_COUNT; i++) {
-    int nl = strlen(results[i].name);
-    int ml = strlen(results[i].metric);
+    int nl, ml;
+    if (!selected[i]) continue;
+    nl = strlen(results[i].name);
+    ml = strlen(results[i].metric);
     if (nl > max_name_len) max_name_len = nl;
     if (ml > max_metric_len) max_metric_len = ml;
   }
@@ -918,6 +1134,7 @@ int main(int argc, char **argv)
   printf("╟────────────────┼──────────────┼─────────────────┼────────────────────╢\n");
 
   for (i = 0; i < TEST_COUNT; i++) {
+    if (!selected[i]) continue;
     printf("║ %-*s │ %-*s │ %15.2f │ %-18s ║\n",
            max_name_len, results[i].name,
            max_metric_len, results[i].metric,
@@ -926,9 +1143,18 @@ int main(int argc, char **argv)
   }
 
   printf("╠════════════════╧══════════════╧═════════════════╧════════════════════╣\n");
-  printf("║  Total: %8.2f s  │  Score: %5.1f / 100%28s║\n", total_sec, total_score, "");
+  printf("║  Total: %8.2f s  │  Score: %5.1f / 100  (%d tests)%14s║\n",
+         total_sec, total_score, run_count, "");
   printf("╚══════════════════════════════════════════════════════════════════════╝\n");
   printf("\n");
+
+  /* ---- render scoreboard on framebuffer ---- */
+  fb_show_scoreboard(results, selected, total_score, total_sec);
+
+  /* Wait for the user to press Enter so they can read the scoreboard
+   * on the framebuffer before we restore the text console. */
+  printf("\n  Press Enter to exit...\n");
+  getchar();
 
   /* ---- cleanup ---- */
   fb_console_restore();
