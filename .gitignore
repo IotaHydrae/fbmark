@@ -9,3 +9,16 @@ build/
 
 # Editor backup files
 *~
+
+# Python virtual environment
+.venv/
+
+# Python cache
+__pycache__/
+
+# Benchmark output files
+result.json
+result.png
+
+# Visualization script
+visualize.py

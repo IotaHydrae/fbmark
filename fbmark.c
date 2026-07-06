@@ -957,6 +957,77 @@ static test_result_t test_julia(void)
 }
 
 /* =====================================================================
+ *  JSON output writer
+ * ===================================================================== */
+
+static void write_results_json(const char *filename,
+                               const test_result_t results[TEST_COUNT],
+                               const int selected[TEST_COUNT],
+                               double total_score, float total_sec,
+                               const char *fbdev)
+{
+  FILE *f = fopen(filename, "w");
+  int i, first;
+
+  if (!f) {
+    fprintf(stderr, "Warning: could not open output file '%s': %m\n", filename);
+    return;
+  }
+
+  fprintf(f, "{\n");
+  fprintf(f, "  \"version\": \"%s\",\n", FBMARK_VERSION);
+  fprintf(f, "  \"device\": \"%s\",\n", fbdev);
+  fprintf(f, "  \"resolution\": { \"width\": %d, \"height\": %d, \"bpp\": %d },\n",
+          fb_info.xres, fb_info.yres, fb_info.bits_per_pixel);
+  fprintf(f, "  \"region\": { \"width\": %d, \"height\": %d, \"posx\": %d, \"posy\": %d },\n",
+          bench_width, bench_height, bench_posx, bench_posy);
+  fprintf(f, "  \"total_time_s\": %.2f,\n", total_sec);
+  fprintf(f, "  \"total_score\": %.1f,\n", total_score);
+
+  fprintf(f, "  \"tests\": [\n");
+  first = 1;
+  for (i = 0; i < TEST_COUNT; i++) {
+    double score;
+    if (!selected[i]) continue;
+
+    if (score_meta[i].direction == METRIC_HIGHER_BETTER)
+      score = (results[i].value / score_meta[i].ref_value) * 100.0;
+    else
+      score = (score_meta[i].ref_value / results[i].value) * 100.0;
+    if (score > 100.0) score = 100.0;
+    if (score < 0.0)   score = 0.0;
+
+    if (!first) fprintf(f, ",\n");
+    first = 0;
+
+    fprintf(f, "    { "
+            "\"name\": \"%s\", "
+            "\"short_name\": \"%s\", "
+            "\"value\": %.2f, "
+            "\"unit\": \"%s\", "
+            "\"metric\": \"%s\", "
+            "\"direction\": \"%s\", "
+            "\"score\": %.1f, "
+            "\"ref_value\": %.1f "
+            "}",
+            results[i].name,
+            test_table[i].short_name,
+            results[i].value,
+            results[i].unit,
+            results[i].metric,
+            score_meta[i].direction == METRIC_HIGHER_BETTER
+                ? "higher_better" : "lower_better",
+            score,
+            score_meta[i].ref_value);
+  }
+  fprintf(f, "\n  ]\n");
+  fprintf(f, "}\n");
+
+  fclose(f);
+  printf("  Results written to %s\n", filename);
+}
+
+/* =====================================================================
  *  Main
  * ===================================================================== */
 
@@ -968,6 +1039,7 @@ int main(int argc, char **argv)
   struct timeval total_start, total_end;
   float total_sec;
   const char *fbdev;
+  const char *output_file = NULL;
 
   /* default: run all tests */
   for (i = 0; i < TEST_COUNT; i++) selected[i] = 1;
@@ -985,6 +1057,7 @@ int main(int argc, char **argv)
       printf("  -t, --test TEST  Run only specified tests (comma-separated list of\n");
       printf("                   test names or numbers, e.g. \"mandelbrot,line\" or\n");
       printf("                   \"1,3,5\"); default: run all tests\n");
+      printf("  -o, --output FILE Write JSON results to FILE for visualization\n");
       printf("\n");
       printf("Environment variables:\n");
       printf("  FRAMEBUFFER       Framebuffer device path (default: /dev/fb0)\n");
@@ -1046,6 +1119,14 @@ int main(int argc, char **argv)
         }
         token = strtok(NULL, ",");
       }
+    }
+    if (strcmp(argv[i], "-o") == 0 || strcmp(argv[i], "--output") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: -o/--output requires a filename argument\n");
+        return 1;
+      }
+      output_file = argv[++i];
+      continue;
     }
   }
 
@@ -1150,6 +1231,11 @@ int main(int argc, char **argv)
 
   /* ---- render scoreboard on framebuffer ---- */
   fb_show_scoreboard(results, selected, total_score, total_sec);
+
+  /* ---- write JSON output if requested ---- */
+  if (output_file)
+    write_results_json(output_file, results, selected,
+                       total_score, total_sec, fbdev);
 
   /* Wait for the user to press Enter so they can read the scoreboard
    * on the framebuffer before we restore the text console. */
