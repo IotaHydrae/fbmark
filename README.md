@@ -11,30 +11,21 @@ Linux Framebuffer Benchmark Suite — a collection of 13 graphics benchmarks tha
 ## Building
 
 ```bash
-make                          # build all benchmarks (binaries get .out suffix)
-make clean                    # remove all .out binaries
+make                          # build fbmark.out
+make clean                    # remove fbmark.out
 make install PREFIX=/usr      # install to DESTDIR (default /usr/local)
 ```
 
-Override defaults:
+Override compiler and flags:
 
 ```bash
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
 ```
 
-Build a single benchmark:
-
-```bash
-make fb_mandelbrot.out
-```
-
 ## Running
 
-Each `fb_<name>.out` is a standalone program that runs one test. `fbmark.out` is the combined suite (13 tests, scoreboard output).
-
 ```bash
-./fbmark.out                  # run the full suite
-./fb_mandelbrot.out           # run a single benchmark
+./fbmark.out                  # run the full suite (13 tests)
 ```
 
 ### Environment variables
@@ -85,15 +76,13 @@ Scoring: each test's raw value is normalized against a reference value, clamped 
 
 ## Architecture
 
-Two layers:
+Two files:
 
 1. **Shared utility header** (`fb_util.h`) — console initialization and cleanup. Opens `/dev/tty0`, switches to `KD_GRAPHICS` mode, hides the text cursor, installs signal handlers. Included directly (`static` functions, no separate compilation).
 
-2. **Benchmark programs** — two categories:
-   - **Standalone** (`fb_mandelbrot.c`, `fb_rectangle.c`, ..., `fb_julia.c`): each has its own `main()`, opens the framebuffer, runs one rendering loop, prints a single result line.
-   - **Combined suite** (`fbmark.c`): includes all 13 tests as `static` functions called sequentially, then prints a formatted scoreboard and computes a weighted total score.
+2. **Benchmark program** (`fbmark.c`): includes all 13 tests as `static` functions called sequentially from `main()`, then prints a formatted scoreboard and computes a total score.
 
-Every program follows the same lifecycle:
+Program lifecycle:
 
 1. Open `$FRAMEBUFFER` (default `/dev/fb0`) with `O_RDWR`
 2. `ioctl(FBIOGET_VSCREENINFO)` to get screen dimensions and bpp
