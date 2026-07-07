@@ -34,30 +34,53 @@ Override compiler and flags:
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
 ```
 
-## Running
+## Usage
 
-```bash
-./fbmark.out                  # run the full suite (13 tests)
+```
+fbmark [OPTIONS]
 ```
 
-### Environment variables
+### Options
 
-| Variable           | Default        | Description                            |
-|--------------------|----------------|----------------------------------------|
-| `FRAMEBUFFER`      | `/dev/fb0`     | Framebuffer device path                |
-| `WIDTH`            | screen width   | Benchmark region width                 |
-| `HEIGHT`           | screen height  | Benchmark region height                |
-| `POSX`             | 0              | Benchmark region X offset              |
-| `POSY`             | 0              | Benchmark region Y offset              |
-| `SIERPINSKI_FPS`   | 4              | Minimum FPS for Sierpinski test        |
+| Option              | Description                                     |
+|---------------------|-------------------------------------------------|
+| `-h`, `--help`      | Show help message and exit                       |
+| `-v`, `--version`   | Show version information and exit                |
+| `-l`, `--list`      | List all available tests and exit                |
+| `-t`, `--test LIST` | Run only specified tests (comma-separated names or numbers, e.g. `"mandelbrot,line"` or `"1,3,5"`) |
+| `-o`, `--output FILE` | Write JSON results to FILE for visualization  |
 
-Example:
+### Environment Variables
+
+| Variable            | Default        | Description                            |
+|---------------------|----------------|----------------------------------------|
+| `FRAMEBUFFER`       | `/dev/fb0`     | Framebuffer device path                |
+| `WIDTH`             | screen width   | Benchmark region width                 |
+| `HEIGHT`            | screen height  | Benchmark region height                |
+| `POSX`              | 0              | Benchmark region X offset              |
+| `POSY`              | 0              | Benchmark region Y offset              |
+| `SIERPINSKI_FPS`    | 4              | Minimum FPS for Sierpinski test        |
+
+### Examples
 
 ```bash
+# Run all tests
+./fbmark.out
+
+# Run specific tests only
+./fbmark.out -t mandelbrot,rectangle,fill
+
+# Run tests by number
+./fbmark.out -t 1,2,8
+
+# Custom framebuffer and region
 FRAMEBUFFER=/dev/fb1 WIDTH=800 HEIGHT=600 ./fbmark.out
+
+# Export results to JSON
+./fbmark.out -o results.json
 ```
 
-### Running without a real framebuffer
+### Running Without a Real Framebuffer
 
 On systems without a real framebuffer (e.g. CI), point `FRAMEBUFFER` at a file-backed buffer:
 
