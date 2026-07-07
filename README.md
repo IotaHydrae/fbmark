@@ -118,25 +118,43 @@ FRAMEBUFFER=/tmp/fb ./fbmark.out
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
-## The 13 tests
+## The 13 Tests
 
-| #  | Test            | Metric      | Direction      |
-|----|-----------------|-------------|----------------|
-|  1 | Mandelbrot      | time (s)    | lower better   |
-|  2 | Rectangle fill  | MPixels/s   | higher better  |
-|  3 | Sierpinski      | max FPS     | higher better  |
-|  4 | Gradient fill   | MPixels/s   | higher better  |
-|  5 | Blit copy       | MPixels/s   | higher better  |
-|  6 | Line draw       | lines/s     | higher better  |
-|  7 | Circle draw     | circles/s   | higher better  |
-|  8 | Fullscreen fill | MPixels/s   | higher better  |
-|  9 | Plasma effect   | avg FPS     | higher better  |
-| 10 | Scroll          | MPixels/s   | higher better  |
-| 11 | Text render     | chars/s     | higher better  |
-| 12 | Triangle fill   | triangles/s | higher better  |
-| 13 | Julia set       | time (s)    | lower better   |
+| #  | Test             | Description                           | Metric         | Direction      |
+|----|------------------|---------------------------------------|----------------|----------------|
+|  1 | Mandelbrot       | Fractal rendering (raytracing)        | time (s)       | lower better   |
+|  2 | Rectangle fill   | Random-colored rectangle fill         | MPixels/s      | higher better  |
+|  3 | Sierpinski       | Recursive Sierpinski triangle         | max FPS        | higher better  |
+|  4 | Gradient fill    | Horizontal color gradient             | MPixels/s      | higher better  |
+|  5 | Blit copy        | Memory block copy (blit)              | MPixels/s      | higher better  |
+|  6 | Line draw        | Random line drawing                   | lines/s        | higher better  |
+|  7 | Circle draw      | Random circle drawing                 | circles/s      | higher better  |
+|  8 | Fullscreen fill  | Solid color full-screen fill          | MPixels/s      | higher better  |
+|  9 | Plasma effect    | Animated plasma sin/cos effect        | avg FPS        | higher better  |
+| 10 | Scroll           | Vertical screen scroll                | MPixels/s      | higher better  |
+| 11 | Text render      | Bitmap font text rendering            | chars/s        | higher better  |
+| 12 | Triangle fill    | Random triangle fill                  | triangles/s    | higher better  |
+| 13 | Julia set        | Fractal rendering (Julia set)         | time (s)       | lower better   |
 
-Scoring: each test's raw value is normalized against a reference value, clamped to [0, 100], and averaged across all 13 tests to produce a total score.
+### Scoring
+
+Each test's raw value is normalized against a reference value from `score_meta`, clamped to [0, 100]. The total score is the **average** of all selected tests' normalized scores. Reference values:
+
+| Test            | Ref Value | Direction      |
+|-----------------|-----------|----------------|
+| Mandelbrot      | 3.0       | lower better   |
+| Rectangle fill  | 200.0     | higher better  |
+| Sierpinski      | 60.0      | higher better  |
+| Gradient fill   | 200.0     | higher better  |
+| Blit copy       | 500.0     | higher better  |
+| Line draw       | 100000.0  | higher better  |
+| Circle draw     | 20000.0   | higher better  |
+| Fullscreen fill | 1000.0    | higher better  |
+| Plasma effect   | 30.0      | higher better  |
+| Scroll          | 500.0     | higher better  |
+| Text render     | 100000.0  | higher better  |
+| Triangle fill   | 10000.0   | higher better  |
+| Julia set       | 3.0       | lower better   |
 
 ## Architecture
 
