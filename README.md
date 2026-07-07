@@ -1,6 +1,18 @@
 # fbmark
 
-Linux Framebuffer Benchmark Suite — a collection of 13 graphics benchmarks that render directly to `/dev/fb0` via `mmap` and measure throughput, frame rate, or elapsed time.
+[English](README.md) | [中文](README_zh.md)
+
+**v1.0.1** — Linux Framebuffer Benchmark Suite — a collection of 13 graphics benchmarks that render directly to `/dev/fb0` via `mmap` and measure throughput, frame rate, or elapsed time.
+
+## Features
+
+- 13 benchmark tests covering common 2D graphics operations
+- Direct framebuffer rendering via `mmap` — no X11/Wayland/GPU required
+- Works on any Linux system with framebuffer support (`/dev/fb0`)
+- File-backed buffer support for headless/CI environments
+- Compact two-file implementation (`fbmark.c` + `fb_util.h`) — easy to port and understand
+- Score normalization and per-test scoring with a total score summary
+- JSON output support for visualization and automation (`-o` flag)
 
 ## Requirements
 
