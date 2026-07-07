@@ -173,6 +173,15 @@ Program lifecycle:
 5. Run the rendering loop, measuring with `gettimeofday`
 6. `fb_console_restore()`, `munmap`, `close(fd)`
 
+## Contributing
+
+Contributions are welcome! Feel free to open issues or submit pull requests.
+
+## Authors
+
+- Nicolas Caramelli
+- Zheng Hua
+
 ## License
 
 GPL v3+ — see source file headers for details.
