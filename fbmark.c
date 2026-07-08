@@ -161,6 +161,101 @@ static void clear_screen(void)
     memset(pixel_at(0, i), 0, bench_width * fb_pixel_size);
 }
 
+/* ---- device / system info detection ---- */
+
+static char *read_sysfs_line(const char *path)
+{
+  FILE *f = fopen(path, "r");
+  static char buf[256];
+  if (!f) return NULL;
+  if (fgets(buf, sizeof(buf), f)) {
+    char *nl = strchr(buf, '\n');
+    if (nl) *nl = '\0';
+    fclose(f);
+    return buf;
+  }
+  fclose(f);
+  return NULL;
+}
+
+static const char *detect_device_model(void)
+{
+  char *vendor, *product;
+  static char model[512];
+
+  /* x86 / DMI — copy strings out of the shared static buffer immediately */
+  vendor  = read_sysfs_line("/sys/class/dmi/id/sys_vendor");
+  if (vendor) {
+    char vendor_copy[256];
+    strncpy(vendor_copy, vendor, sizeof(vendor_copy) - 1);
+    vendor_copy[sizeof(vendor_copy) - 1] = '\0';
+
+    product = read_sysfs_line("/sys/class/dmi/id/product_name");
+    if (product) {
+      snprintf(model, sizeof(model), "%s %s", vendor_copy, product);
+      return model;
+    }
+  }
+
+  /* ARM / device-tree */
+  product = read_sysfs_line("/proc/device-tree/model");
+  if (product) {
+    strncpy(model, product, sizeof(model) - 1);
+    model[sizeof(model) - 1] = '\0';
+    return model;
+  }
+
+  return "Unknown";
+}
+
+static const char *detect_cpu_model(void)
+{
+  FILE *f = fopen("/proc/cpuinfo", "r");
+  static char buf[256];
+  if (!f) return "Unknown";
+
+  while (fgets(buf, sizeof(buf), f)) {
+    char *colon = strchr(buf, ':');
+    if (colon) {
+      *colon = '\0';
+      if (strstr(buf, "model name") || strstr(buf, "Model Name")) {
+        char *val = colon + 1;
+        while (*val == ' ' || *val == '\t') val++;
+        char *nl = strchr(val, '\n');
+        if (nl) *nl = '\0';
+        fclose(f);
+        return val;
+      }
+    }
+  }
+  fclose(f);
+  return "Unknown";
+}
+
+static const char *detect_device_vendor(void)
+{
+  char *vendor;
+
+  vendor = read_sysfs_line("/sys/class/dmi/id/sys_vendor");
+  if (vendor) return vendor;
+
+  /* ARM device-tree model: first word is often the vendor */
+  vendor = read_sysfs_line("/proc/device-tree/model");
+  if (vendor) {
+    static char v[128];
+    char *space = strchr(vendor, ' ');
+    if (space) {
+      size_t len = space - vendor;
+      if (len >= sizeof(v)) len = sizeof(v) - 1;
+      memcpy(v, vendor, len);
+      v[len] = '\0';
+      return v;
+    }
+  }
+
+  return "Unknown";
+}
+
 /* =====================================================================
  *  Test 1: Mandelbrot
  * ===================================================================== */
@@ -964,7 +1059,9 @@ static void write_results_json(const char *filename,
                                const test_result_t results[TEST_COUNT],
                                const int selected[TEST_COUNT],
                                double total_score, float total_sec,
-                               const char *fbdev)
+                               const char *fbdev,
+                               const char *model, const char *vendor,
+                               const char *cpu)
 {
   FILE *f = fopen(filename, "w");
   int i, first;
@@ -976,7 +1073,13 @@ static void write_results_json(const char *filename,
 
   fprintf(f, "{\n");
   fprintf(f, "  \"version\": \"%s\",\n", FBMARK_VERSION);
-  fprintf(f, "  \"device\": \"%s\",\n", fbdev);
+  fprintf(f, "  \"device_model\": \"%s\",\n",
+          model ? model : "Unknown");
+  fprintf(f, "  \"device_vendor\": \"%s\",\n",
+          vendor ? vendor : "Unknown");
+  fprintf(f, "  \"cpu_model\": \"%s\",\n",
+          cpu ? cpu : "Unknown");
+  fprintf(f, "  \"framebuffer\": \"%s\",\n", fbdev);
   fprintf(f, "  \"resolution\": { \"width\": %d, \"height\": %d, \"bpp\": %d },\n",
           fb_info.xres, fb_info.yres, fb_info.bits_per_pixel);
   fprintf(f, "  \"region\": { \"width\": %d, \"height\": %d, \"posx\": %d, \"posy\": %d },\n",
@@ -1040,6 +1143,7 @@ int main(int argc, char **argv)
   float total_sec;
   const char *fbdev;
   const char *output_file = NULL;
+  const char *device_model = NULL;    /* NULL = auto-detect */
 
   /* default: run all tests */
   for (i = 0; i < TEST_COUNT; i++) selected[i] = 1;
@@ -1058,6 +1162,8 @@ int main(int argc, char **argv)
       printf("                   test names or numbers, e.g. \"mandelbrot,line\" or\n");
       printf("                   \"1,3,5\"); default: run all tests\n");
       printf("  -o, --output FILE Write JSON results to FILE for visualization\n");
+      printf("  -m, --model NAME  Device model name for output (default: auto-detect\n");
+      printf("                    from /sys/class/dmi/id/ or /proc/device-tree/)\n");
       printf("\n");
       printf("Environment variables:\n");
       printf("  FRAMEBUFFER       Framebuffer device path (default: /dev/fb0)\n");
@@ -1126,6 +1232,14 @@ int main(int argc, char **argv)
         return 1;
       }
       output_file = argv[++i];
+      continue;
+    }
+    if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--model") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: -m/--model requires a device model name\n");
+        return 1;
+      }
+      device_model = argv[++i];
       continue;
     }
   }
@@ -1233,9 +1347,18 @@ int main(int argc, char **argv)
   fb_show_scoreboard(results, selected, total_score, total_sec);
 
   /* ---- write JSON output if requested ---- */
-  if (output_file)
+  if (output_file) {
+    const char *model, *vendor, *cpu;
+
+    /* device info */
+    model  = device_model ? device_model : detect_device_model();
+    vendor = detect_device_vendor();
+    cpu    = detect_cpu_model();
+
     write_results_json(output_file, results, selected,
-                       total_score, total_sec, fbdev);
+                       total_score, total_sec, fbdev,
+                       model, vendor, cpu);
+  }
 
   /* Wait for the user to press Enter so they can read the scoreboard
    * on the framebuffer before we restore the text console. */
