@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-fbmark可视化工具 —— 从 fbmark JSON 输出生成图表。
+fbmark可视化工具 —— 从 fbmark JSON 或 CSV 输出生成图表。
 
 用法：
     ./fbmark.out -o results.json
     python3 visualize.py results.json
 
-    # 或者将两者合并为一条管线：
-    ./fbmark.out -o results.json && python3 visualize.py results.json
+    ./fbmark.out -o results.csv
+    python3 visualize.py results.csv
 
 输出：
     results.png — 一张包含三项内容的组合图：
@@ -16,6 +16,7 @@ fbmark可视化工具 —— 从 fbmark JSON 输出生成图表。
       3. 汇总：带有元数据信息的文字面板
 """
 
+import csv
 import json
 import sys
 import os
@@ -33,10 +34,72 @@ except ImportError:
     sys.exit(1)
 
 
-def load_results(path: str) -> dict:
+def _detect_format(path: str) -> str:
+    """根据扩展名检测文件格式。"""
+    ext = os.path.splitext(path)[1].lower()
+    if ext == ".csv":
+        return "csv"
+    return "json"
+
+
+def _load_json(path: str) -> dict:
     """从 JSON 文件加载 fbmark 结果。"""
     with open(path) as f:
         return json.load(f)
+
+
+def _load_csv(path: str) -> dict:
+    """从 CSV 文件加载 fbmark 结果，并规范化为与 JSON 一致的结构。"""
+    tests = []
+    meta = {}
+
+    with open(path, newline="") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            tests.append({
+                "name":       row["test_name"],
+                "short_name": row["short_name"],
+                "value":      float(row["value"]),
+                "unit":       row["unit"],
+                "metric":     row["metric"],
+                "direction":  row["direction"],
+                "score":      float(row["score"]),
+                "ref_value":  float(row["ref_value"]),
+            })
+
+            # 元数据在每一行中重复，只取第一行即可
+            if not meta:
+                meta = {
+                    "version":        "unknown",
+                    "device_model":   row["device_model"],
+                    "device_vendor":  row["device_vendor"],
+                    "cpu_model":      row["cpu_model"],
+                    "framebuffer":    row["framebuffer"],
+                    "resolution": {
+                        "width":  int(row["width"]),
+                        "height": int(row["height"]),
+                        "bpp":    int(row["bpp"]),
+                    },
+                    "region": {
+                        "width": int(row["region_w"]),
+                        "height": int(row["region_h"]),
+                        "posx":  0,
+                        "posy":  0,
+                    },
+                    "total_time_s": float(row["total_time_s"]),
+                    "total_score":  float(row["total_score"]),
+                }
+
+    meta["tests"] = tests
+    return meta
+
+
+def load_results(path: str) -> dict:
+    """加载 fbmark 结果文件（JSON 或 CSV，根据扩展名自动检测）。"""
+    fmt = _detect_format(path)
+    if fmt == "csv":
+        return _load_csv(path)
+    return _load_json(path)
 
 
 def make_charts(data: dict, out_path: str):
@@ -44,8 +107,11 @@ def make_charts(data: dict, out_path: str):
 
     tests = data["tests"]
     meta = {
-        "version": data["version"],
-        "device": data["device"],
+        "version": data.get("version", "unknown"),
+        "device_model": data.get("device_model", "Unknown"),
+        "device_vendor": data.get("device_vendor", "Unknown"),
+        "cpu_model": data.get("cpu_model", "Unknown"),
+        "framebuffer": data.get("framebuffer", data.get("device", "Unknown")),
         "res": f"{data['resolution']['width']}x{data['resolution']['height']}",
         "bpp": data["resolution"]["bpp"],
         "region": (f"{data['region']['width']}x{data['region']['height']}"
@@ -139,7 +205,10 @@ def make_charts(data: dict, out_path: str):
     ax_meta.axis("off")
 
     lines = [
-        f"设备：       {meta['device']}",
+        f"设备型号：   {meta['device_model']}",
+        f"设备厂商：   {meta['device_vendor']}",
+        f"CPU：        {meta['cpu_model']}",
+        f"帧缓冲：     {meta['framebuffer']}",
         f"分辨率：     {meta['res']} @ {meta['bpp']} bpp",
         f"基准区域：   {meta['region']}",
         f"fbmark 版本：{meta['version']}",
@@ -148,13 +217,13 @@ def make_charts(data: dict, out_path: str):
         f"综合得分：   {meta['score']:.1f} / 100  （共 {len(tests)} 项测试）",
     ]
 
-    y_pos = 0.9
+    y_pos = 0.95
     for line in lines:
         if line:
             ax_meta.text(0.05, y_pos, line, transform=ax_meta.transAxes,
                          fontsize=11, fontfamily="monospace",
                          verticalalignment="top")
-        y_pos -= 0.12
+        y_pos -= 0.10
 
     # ---- 保存 ----
     fig.savefig(out_path, dpi=150, facecolor="white")
@@ -164,12 +233,16 @@ def make_charts(data: dict, out_path: str):
 def main():
     if len(sys.argv) < 2:
         # 回退到默认文件名
-        json_path = "results.json"
-        if not Path(json_path).exists():
-            print("用法：python3 visualize.py <results.json>")
+        for default in ("results.json", "results.csv"):
+            if Path(default).exists():
+                json_path = default
+                break
+        else:
+            print("用法：python3 visualize.py <results.json|results.csv>")
             print("")
-            print("先运行 fbmark 并导出 JSON：")
+            print("先运行 fbmark 并导出结果：")
             print("  ./fbmark.out -o results.json")
+            print("  ./fbmark.out -o results.csv")
             print("  python3 visualize.py results.json")
             sys.exit(1)
     else:
@@ -179,9 +252,13 @@ def main():
         print(f"错误：文件不存在：{json_path}")
         sys.exit(1)
 
+    if os.path.splitext(json_path)[1].lower() not in (".json", ".csv"):
+        print(f"警告：无法识别的文件扩展名 '{json_path}'，"
+              f"将尝试按 JSON 解析")
+
     data = load_results(json_path)
 
-    # 输出文件名：将 .json 替换为 .png，或直接追加 .png
+    # 输出文件名：将扩展名替换为 .png
     stem = os.path.splitext(json_path)[0]
     out_path = f"{stem}.png"
 
