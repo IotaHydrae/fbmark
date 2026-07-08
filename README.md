@@ -159,7 +159,7 @@ This produces a `results.png` containing:
 ║ Sierpinski     │ FPS          │           45.20 │ FPS                ║
 ║ ...            │ ...          │             ... │ ...                ║
 ╠════════════════╧══════════════╧═════════════════╧════════════════════╣
-║  Total:    8.32 s  │  Score:  72.4 / 100  (13 tests)               ║
+║  Total:    8.32 s  │  Score:   125.3  (13 tests)                    ║
 ╚══════════════════════════════════════════════════════════════════════╝
 ```
 
@@ -183,7 +183,9 @@ This produces a `results.png` containing:
 
 ### Scoring
 
-Each test's raw value is normalized against a reference value from `score_meta`, clamped to [0, 100]. The total score is the **average** of all selected tests' normalized scores. Reference values:
+Each test's raw value is normalized against a reference value from `score_meta`. The total score is the **average** of all selected tests' normalized scores. Like CoreMark, higher performance yields a higher score with no upper limit — the stronger the device, the higher the score.
+
+Reference values:
 
 | Test            | Ref Value | Direction      |
 |-----------------|-----------|----------------|

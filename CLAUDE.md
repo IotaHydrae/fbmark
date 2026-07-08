@@ -125,4 +125,5 @@ benchmark sub-region offset (`POSX`/`POSY`).
 |13 | Julia set        | time (s)       | lower better  |
 
 Scoring: each test's raw value is normalized against a reference value from
-`score_meta` in `fbmark.c`, clamped to [0,100], and averaged across all 13 tests.
+`score_meta` in `fbmark.c`, and averaged across all 13 tests. Like CoreMark,
+higher performance yields a higher score with no upper limit.

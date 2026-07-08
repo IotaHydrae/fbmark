@@ -127,8 +127,7 @@ static double compute_total_score(const test_result_t results[TEST_COUNT],
       /* lower raw value → higher score */
       score = (score_meta[i].ref_value / results[i].value) * 100.0;
     }
-    if (score > 100.0) score = 100.0;
-    if (score < 0.0)   score = 0.0;
+    if (score < 0.0) score = 0.0;
     total += score;
     count++;
   }
@@ -889,7 +888,7 @@ static void fb_show_scoreboard(const test_result_t results[TEST_COUNT],
   y += FONT_H + 4;
 
   /* ---- total line (yellow) ---- */
-  snprintf(buf, sizeof(buf), "Total: %8.2f s     Score: %5.1f / 100", total_sec, total_score);
+  snprintf(buf, sizeof(buf), "Total: %8.2f s     Score: %8.1f", total_sec, total_score);
   fb_draw_string(margin_x, y, buf, 255, 220, 50);
 
   /* ---- "exit" hint at the bottom of the screen (dark gray) ---- */
@@ -1160,8 +1159,7 @@ static void write_results_json(const char *filename,
       score = (results[i].value / score_meta[i].ref_value) * 100.0;
     else
       score = (score_meta[i].ref_value / results[i].value) * 100.0;
-    if (score > 100.0) score = 100.0;
-    if (score < 0.0)   score = 0.0;
+    if (score < 0.0) score = 0.0;
 
     if (!first) fprintf(f, ",\n");
     first = 0;
@@ -1418,7 +1416,7 @@ int main(int argc, char **argv)
   }
 
   printf("╠════════════════╧══════════════╧═════════════════╧════════════════════╣\n");
-  printf("║  Total: %8.2f s  │  Score: %5.1f / 100  (%d tests)%14s║\n",
+  printf("║  Total: %8.2f s  │  Score: %8.1f  (%d tests)%11s║\n",
          total_sec, total_score, run_count, "");
   printf("╚══════════════════════════════════════════════════════════════════════╝\n");
   printf("\n");
