@@ -1052,6 +1052,69 @@ static test_result_t test_julia(void)
 }
 
 /* =====================================================================
+ *  CSV output writer
+ * ===================================================================== */
+
+static void write_results_csv(const char *filename,
+                              const test_result_t results[TEST_COUNT],
+                              const int selected[TEST_COUNT],
+                              double total_score, float total_sec,
+                              const char *fbdev,
+                              const char *model, const char *vendor,
+                              const char *cpu)
+{
+  FILE *f = fopen(filename, "w");
+  int i;
+
+  if (!f) {
+    fprintf(stderr, "Warning: could not open output file '%s': %m\n", filename);
+    return;
+  }
+
+  /* CSV header */
+  fprintf(f, "device_model,device_vendor,cpu_model,framebuffer,"
+          "width,height,bpp,region_w,region_h,total_time_s,total_score,"
+          "test_name,short_name,value,unit,metric,direction,score,ref_value\n");
+
+  /* one row per selected test */
+  for (i = 0; i < TEST_COUNT; i++) {
+    double score;
+    if (!selected[i]) continue;
+
+    if (score_meta[i].direction == METRIC_HIGHER_BETTER)
+      score = (results[i].value / score_meta[i].ref_value) * 100.0;
+    else
+      score = (score_meta[i].ref_value / results[i].value) * 100.0;
+    if (score > 100.0) score = 100.0;
+    if (score < 0.0)   score = 0.0;
+
+    /* CSV-escape: if a field contains commas or quotes, wrap with quotes */
+    fprintf(f, "\"%s\",\"%s\",\"%s\",\"%s\","
+            "%d,%d,%d,%d,%d,%.2f,%.1f,"
+            "\"%s\",\"%s\",%.2f,\"%s\",\"%s\",\"%s\",%.1f,%.1f\n",
+            model ? model : "Unknown",
+            vendor ? vendor : "Unknown",
+            cpu ? cpu : "Unknown",
+            fbdev,
+            fb_info.xres, fb_info.yres, fb_info.bits_per_pixel,
+            bench_width, bench_height,
+            total_sec, total_score,
+            results[i].name,
+            test_table[i].short_name,
+            results[i].value,
+            results[i].unit,
+            results[i].metric,
+            score_meta[i].direction == METRIC_HIGHER_BETTER
+                ? "higher_better" : "lower_better",
+            score,
+            score_meta[i].ref_value);
+  }
+
+  fclose(f);
+  printf("  Results written to %s\n", filename);
+}
+
+/* =====================================================================
  *  JSON output writer
  * ===================================================================== */
 
@@ -1143,6 +1206,7 @@ int main(int argc, char **argv)
   float total_sec;
   const char *fbdev;
   const char *output_file = NULL;
+  const char *output_format = NULL;   /* "json" or "csv", NULL = auto-detect */
   const char *device_model = NULL;    /* NULL = auto-detect */
 
   /* default: run all tests */
@@ -1161,7 +1225,10 @@ int main(int argc, char **argv)
       printf("  -t, --test TEST  Run only specified tests (comma-separated list of\n");
       printf("                   test names or numbers, e.g. \"mandelbrot,line\" or\n");
       printf("                   \"1,3,5\"); default: run all tests\n");
-      printf("  -o, --output FILE Write JSON results to FILE for visualization\n");
+      printf("  -o, --output FILE Write results to FILE (JSON or CSV, format\n");
+      printf("                   auto-detected from extension; use --format to override)\n");
+      printf("  -f, --format FMT  Output format: json or csv (default: detect from\n");
+      printf("                    -o file extension, fallback to json)\n");
       printf("  -m, --model NAME  Device model name for output (default: auto-detect\n");
       printf("                    from /sys/class/dmi/id/ or /proc/device-tree/)\n");
       printf("\n");
@@ -1232,6 +1299,19 @@ int main(int argc, char **argv)
         return 1;
       }
       output_file = argv[++i];
+      continue;
+    }
+    if (strcmp(argv[i], "-f") == 0 || strcmp(argv[i], "--format") == 0) {
+      if (i + 1 >= argc) {
+        fprintf(stderr, "Error: -f/--format requires an argument (json or csv)\n");
+        return 1;
+      }
+      output_format = argv[++i];
+      if (strcmp(output_format, "json") != 0 && strcmp(output_format, "csv") != 0) {
+        fprintf(stderr, "Error: unknown format '%s' — use 'json' or 'csv'\n",
+                output_format);
+        return 1;
+      }
       continue;
     }
     if (strcmp(argv[i], "-m") == 0 || strcmp(argv[i], "--model") == 0) {
@@ -1346,18 +1426,34 @@ int main(int argc, char **argv)
   /* ---- render scoreboard on framebuffer ---- */
   fb_show_scoreboard(results, selected, total_score, total_sec);
 
-  /* ---- write JSON output if requested ---- */
+  /* ---- write output file if requested ---- */
   if (output_file) {
+    const char *fmt = output_format;
     const char *model, *vendor, *cpu;
+
+    /* auto-detect format from file extension */
+    if (!fmt) {
+      const char *dot = strrchr(output_file, '.');
+      if (dot && strcasecmp(dot, ".csv") == 0)
+        fmt = "csv";
+      else
+        fmt = "json";   /* default */
+    }
 
     /* device info */
     model  = device_model ? device_model : detect_device_model();
     vendor = detect_device_vendor();
     cpu    = detect_cpu_model();
 
-    write_results_json(output_file, results, selected,
-                       total_score, total_sec, fbdev,
-                       model, vendor, cpu);
+    if (strcmp(fmt, "csv") == 0) {
+      write_results_csv(output_file, results, selected,
+                        total_score, total_sec, fbdev,
+                        model, vendor, cpu);
+    } else {
+      write_results_json(output_file, results, selected,
+                         total_score, total_sec, fbdev,
+                         model, vendor, cpu);
+    }
   }
 
   /* Wait for the user to press Enter so they can read the scoreboard
