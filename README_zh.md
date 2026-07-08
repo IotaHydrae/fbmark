@@ -12,7 +12,10 @@
 - 支持文件模拟 framebuffer，可在无头/CI 环境下运行
 - 紧凑的双文件实现（`fbmark.c` + `fb_util.h`）— 易于移植和理解
 - 结果归一化，逐项评分并输出总分
-- 支持 JSON 输出，便于可视化和自动化（`-o` 参数）
+- 支持 JSON 和 CSV 输出，便于可视化和自动化（`-o` 参数）
+- 设备自动检测（型号、厂商、CPU 信息），通过 `/sys` 和 `/proc` 获取
+- `visualize.py` 脚本，用于从基准测试结果生成图表
+- 除 Makefile 外，还支持 CMake 构建
 
 ## 环境要求
 
@@ -21,6 +24,8 @@
 - 标准 C 库（`libc`、`libm`）
 
 ## 构建
+
+### Make
 
 ```bash
 make                          # 构建 fbmark.out
@@ -32,6 +37,15 @@ make install PREFIX=/usr      # 安装到 DESTDIR（默认 /usr/local）
 
 ```bash
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
+```
+
+### CMake
+
+```bash
+mkdir build && cd build
+cmake ..
+make                          # 构建 fbmark.out
+make install                  # 安装到 prefix（默认 /usr/local）
 ```
 
 ## 使用方法
@@ -48,7 +62,9 @@ fbmark [OPTIONS]
 | `-v`, `--version`   | 显示版本信息并退出                                |
 | `-l`, `--list`      | 列出所有可用测试并退出                            |
 | `-t`, `--test LIST` | 仅运行指定测试（逗号分隔的名称或编号，如 `"mandelbrot,line"` 或 `"1,3,5"`） |
-| `-o`, `--output FILE` | 将结果以 JSON 格式写入 FILE，用于可视化         |
+| `-o`, `--output FILE` | 将结果写入 FILE（JSON 或 CSV，根据扩展名自动检测格式） |
+| `-f`, `--format FMT`  | 输出格式：`json` 或 `csv`（默认：从 `-o` 文件扩展名检测，回退为 json） |
+| `-m`, `--model NAME`  | 输出中的设备型号名称（默认：从 `/sys/class/dmi/id/` 或 `/proc/device-tree/` 自动检测） |
 
 ### 环境变量
 
@@ -78,6 +94,15 @@ FRAMEBUFFER=/dev/fb1 WIDTH=800 HEIGHT=600 ./fbmark.out
 
 # 导出结果为 JSON
 ./fbmark.out -o results.json
+
+# 导出结果为 CSV
+./fbmark.out -o results.csv
+
+# 强制指定格式，忽略文件扩展名
+./fbmark.out -o results.txt -f json
+
+# 设置设备型号名称
+./fbmark.out -o results.json -m "Raspberry Pi 4"
 ```
 
 ### 无真实 Framebuffer 运行
@@ -88,6 +113,26 @@ FRAMEBUFFER=/dev/fb1 WIDTH=800 HEIGHT=600 ./fbmark.out
 dd if=/dev/zero of=/tmp/fb bs=1K count=8192
 FRAMEBUFFER=/tmp/fb ./fbmark.out
 ```
+
+## 可视化
+
+使用 `visualize.py` 从基准测试结果生成图表（需要 `matplotlib`）：
+
+```bash
+# 安装依赖
+pip install matplotlib
+
+# 运行基准测试并导出结果
+./fbmark.out -o results.json
+
+# 生成图表（支持 .json 和 .csv 输入）
+python3 visualize.py results.json
+```
+
+将生成 `results.png`，包含以下内容：
+- **原始数值图** — 各测试原始值的柱状图（对数刻度，按测试分组）
+- **归一化得分图** — 各测试得分的柱状图（0—100）
+- **汇总面板** — 设备信息、分辨率、总耗时和综合得分
 
 ## 输出示例
 

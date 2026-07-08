@@ -21,9 +21,33 @@ Override defaults:
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
 ```
 
+CMake is also supported:
+```bash
+mkdir build && cd build
+cmake ..
+make
+```
+
 ## Running benchmarks
 
-`fbmark.out` is the combined suite (13 tests, scoreboard output).
+`fbmark.out` is the combined suite (13 tests, scoreboard output). CLI options:
+
+| Option            | Description |
+|-------------------|-------------|
+| `-h`, `--help`    | Show help |
+| `-v`, `--version` | Show version |
+| `-l`, `--list`    | List tests |
+| `-t`, `--test`    | Run specific tests (comma-separated names or numbers) |
+| `-o`, `--output`  | Write results to FILE (JSON or CSV; format auto-detected from extension) |
+| `-f`, `--format`  | Force output format: `json` or `csv` |
+| `-m`, `--model`   | Set device model name (default: auto-detect) |
+
+Output files can be visualized with `visualize.py` (requires `matplotlib`):
+```bash
+./fbmark.out -o results.json
+python3 visualize.py results.json   # produces results.png
+```
+`visualize.py` supports both JSON and CSV input.
 
 Environment variables:
 
@@ -62,10 +86,15 @@ Two layers:
 The program follows this lifecycle:
 1. Open `$FRAMEBUFFER` (default `/dev/fb0`) with `O_RDWR`
 2. `ioctl(FBIOGET_VSCREENINFO)` to get screen dimensions and bpp
-3. `mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0)` to map the framebuffer
-4. `fb_console_init()` to switch to graphics mode
-5. Run the rendering loop, measuring with `gettimeofday`
-6. `fb_console_restore()`, `munmap`, `close(fd)`
+3. Auto-detect device info: model/vendor from `/sys/class/dmi/id/` or `/proc/device-tree/`, CPU model from `/proc/cpuinfo`
+4. `mmap(NULL, len, PROT_WRITE, MAP_SHARED, fd, 0)` to map the framebuffer
+5. `fb_console_init()` to switch to graphics mode
+6. Run the rendering loop, measuring with `gettimeofday`
+7. `fb_console_restore()`, `munmap`, `close(fd)`
+
+Output: JSON writes device metadata + per-test results with scores. CSV writes
+the same data with a header row. Format is auto-detected from `-o` file extension
+(`.csv` → CSV, everything else → JSON); `-f` overrides.
 
 Tests do direct pixel math on the mmap'd buffer, wrapped in a
 `pixel_at(x, y)` helper that accounts for the

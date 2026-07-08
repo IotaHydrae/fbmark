@@ -12,7 +12,10 @@
 - File-backed buffer support for headless/CI environments
 - Compact two-file implementation (`fbmark.c` + `fb_util.h`) — easy to port and understand
 - Score normalization and per-test scoring with a total score summary
-- JSON output support for visualization and automation (`-o` flag)
+- JSON and CSV output support for visualization and automation (`-o` flag)
+- Device auto-detection (model, vendor, CPU info) via `/sys` and `/proc`
+- `visualize.py` script for generating charts from benchmark results
+- CMake build support in addition to the Makefile
 
 ## Requirements
 
@@ -21,6 +24,8 @@
 - Standard C library (`libc`, `libm`)
 
 ## Building
+
+### Make
 
 ```bash
 make                          # build fbmark.out
@@ -32,6 +37,15 @@ Override compiler and flags:
 
 ```bash
 make CC=clang CFLAGS="-O3 -march=native" LDFLAGS="-static"
+```
+
+### CMake
+
+```bash
+mkdir build && cd build
+cmake ..
+make                          # build fbmark.out
+make install                  # install to prefix (default /usr/local)
 ```
 
 ## Usage
@@ -48,7 +62,9 @@ fbmark [OPTIONS]
 | `-v`, `--version`   | Show version information and exit                |
 | `-l`, `--list`      | List all available tests and exit                |
 | `-t`, `--test LIST` | Run only specified tests (comma-separated names or numbers, e.g. `"mandelbrot,line"` or `"1,3,5"`) |
-| `-o`, `--output FILE` | Write JSON results to FILE for visualization  |
+| `-o`, `--output FILE` | Write results to FILE (JSON or CSV, format auto-detected from extension) |
+| `-f`, `--format FMT`  | Output format: `json` or `csv` (default: detect from `-o` file extension, fallback to json) |
+| `-m`, `--model NAME`  | Device model name for output (default: auto-detect from `/sys/class/dmi/id/` or `/proc/device-tree/`) |
 
 ### Environment Variables
 
@@ -78,6 +94,15 @@ FRAMEBUFFER=/dev/fb1 WIDTH=800 HEIGHT=600 ./fbmark.out
 
 # Export results to JSON
 ./fbmark.out -o results.json
+
+# Export results to CSV
+./fbmark.out -o results.csv
+
+# Force format regardless of file extension
+./fbmark.out -o results.txt -f json
+
+# Set device model name
+./fbmark.out -o results.json -m "Raspberry Pi 4"
 ```
 
 ### Running Without a Real Framebuffer
@@ -88,6 +113,26 @@ On systems without a real framebuffer (e.g. CI), point `FRAMEBUFFER` at a file-b
 dd if=/dev/zero of=/tmp/fb bs=1K count=8192
 FRAMEBUFFER=/tmp/fb ./fbmark.out
 ```
+
+## Visualization
+
+Use `visualize.py` to generate charts from benchmark results (requires `matplotlib`):
+
+```bash
+# Install dependency
+pip install matplotlib
+
+# Run benchmark and export results
+./fbmark.out -o results.json
+
+# Generate chart (supports both .json and .csv input)
+python3 visualize.py results.json
+```
+
+This produces a `results.png` containing:
+- **Raw values chart** — bar chart of raw benchmark values (log scale, grouped by test)
+- **Normalized scores chart** — bar chart of per-test scores (0–100)
+- **Summary panel** — device info, resolution, total time and overall score
 
 ## Sample Output
 
